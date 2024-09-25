@@ -1,4 +1,4 @@
-# FastAPI
+# KOPIS-custom-api
 
 Version: 0.1.0
 
@@ -41,6 +41,46 @@ Schema:
 		"$ref": "#/components/schemas/Performance"
 	},
 	"title": "Response Get Performances Performances Get"
+}
+```
+
+**422**
+
+Validation Error
+
+Content type: application/json
+
+Schema:
+
+```json
+{
+	"$ref": "#/components/schemas/HTTPValidationError"
+}
+```
+
+---
+
+## GET /performance/{mt20id}
+
+### Parameters
+
+| Name   | Located in | Description | Required | Schema |
+| ------ | ---------- | ----------- | -------- | ------ |
+| mt20id | path       |             | True     | string |
+
+### Responses
+
+**200**
+
+Successful Response
+
+Content type: application/json
+
+Schema:
+
+```json
+{
+	"$ref": "#/components/schemas/PerformanceDetail"
 }
 ```
 
