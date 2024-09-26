@@ -27,6 +27,9 @@ async def get_performances(
     openrun: Optional[str] = Query(None, description="오픈런"),
     db: Session = Depends(get_db)
 ):
+    """
+        ## 공연목록 조회 API
+    """
     try:
         start_date = datetime.strptime(stdate, "%Y%m%d").date()
         end_date = datetime.strptime(eddate, "%Y%m%d").date()
@@ -75,14 +78,12 @@ async def get_performances(
 
 @router.get("/performance/{mt20id}", response_model=PerformanceDetail)
 async def get_performance_detail(mt20id: str, db: Session = Depends(get_db)):
+    """
+        ## 공연상세정보 조회 API
+    """
     db_detail = db.query(PerformanceDetailDB).filter(PerformanceDetailDB.mt20id == mt20id).first()
     if db_detail is None:
         raise HTTPException(status_code=404, detail="Performance not found")
-    
-    # if db_detail.relates:
-    #     relates = json.loads(db_detail.relates)
-    #     processed_relates = process_relates(relates)
-    #     db_detail.relates = json.dumps(processed_relates, ensure_ascii=False)
     
     return PerformanceDetail(
         mt20id=db_detail.mt20id,
