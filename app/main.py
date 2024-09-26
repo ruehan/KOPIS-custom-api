@@ -1,9 +1,11 @@
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import PlainTextResponse
 from datetime import datetime
 import json
+
+from fastapi.templating import Jinja2Templates
 from utils import fetch_from_kopis, update_database
 from api import performances, facilities
 from database import Base, SessionLocal, engine
@@ -17,6 +19,12 @@ Base.metadata.create_all(bind=engine)
 
 app.include_router(performances.router)
 app.include_router(facilities.router)
+
+templates = Jinja2Templates(directory="templates")
+
+@app.get("/")
+async def root(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
 
 @app.get("/docs/markdown", response_class=PlainTextResponse)
 async def get_markdown_docs():

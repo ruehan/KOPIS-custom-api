@@ -2,6 +2,8 @@
 
 Version: 0.1.0
 
+> **BASE URL** > **[ruehan-kopis.org](https://ruehan-kopis.org)**
+
 ## GET /performances
 
 ## 공연목록 조회 API
