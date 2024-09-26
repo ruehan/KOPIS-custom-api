@@ -20,7 +20,7 @@ app.include_router(facilities.router)
 
 @app.get("/docs/markdown", response_class=PlainTextResponse)
 async def get_markdown_docs():
-    """API 문서를 Markdown 형식으로 반환합니다."""
+    """API 문서를 Markdown 형식으로 반환"""
     
     def generate_markdown_docs():
         openapi_schema = get_openapi(

@@ -1,10 +1,10 @@
-# KOPIS-custom-api
+# KOPIS-custom
 
 Version: 0.1.0
 
 ## GET /performances
 
-공연목록 정보를 반환합니다.
+## 공연목록 조회 API
 
 ### Parameters
 
@@ -62,6 +62,8 @@ Schema:
 
 ## GET /performance/{mt20id}
 
+## 공연상세정보 조회 API
+
 ### Parameters
 
 | Name   | Located in | Description | Required | Schema |
@@ -100,9 +102,60 @@ Schema:
 
 ---
 
+## GET /performance-facilities
+
+공연시설 조회 API
+
+### Parameters
+
+| Name          | Located in | Description      | Required | Schema  |
+| ------------- | ---------- | ---------------- | -------- | ------- |
+| signgucode    | query      | 지역(시도)코드   | False    |         |
+| signgucodesub | query      | 지역(구군)코드   | False    |         |
+| fcltychartr   | query      | 공연시설특성코드 | False    |         |
+| shprfnmfct    | query      | 공연시설명       | False    |         |
+| cpage         | query      | 현재페이지       | False    | integer |
+| rows          | query      | 페이지당 목록 수 | False    | integer |
+
+### Responses
+
+**200**
+
+Successful Response
+
+Content type: application/json
+
+Schema:
+
+```json
+{
+	"type": "array",
+	"items": {
+		"$ref": "#/components/schemas/PerformanceFacility"
+	},
+	"title": "Response Get Performance Facilities Performance Facilities Get"
+}
+```
+
+**422**
+
+Validation Error
+
+Content type: application/json
+
+Schema:
+
+```json
+{
+	"$ref": "#/components/schemas/HTTPValidationError"
+}
+```
+
+---
+
 ## GET /docs/markdown
 
-API 문서를 Markdown 형식으로 반환합니다.
+API 문서를 Markdown 형식으로 반환
 
 ### Responses
 

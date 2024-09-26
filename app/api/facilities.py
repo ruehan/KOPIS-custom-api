@@ -14,7 +14,10 @@ async def update_facilities(
     signgucode: Optional[str] = Query(None, description="지역(시도)코드"),
     db: Session = Depends(get_db)
 ):
-    """사용 금지"""
+    """
+        ## 사용금지!!
+        ## 공연시설 DB 업데이트
+    """
     try:
         facilities = fetch_facilities_from_kopis(signgucode)
         update_facilities_database(db, facilities)
@@ -33,6 +36,9 @@ async def get_performance_facilities(
     rows: int = Query(5, description="페이지당 목록 수"),
     db: Session = Depends(get_db)
 ):
+    """
+        공연시설 조회 API
+    """
     query = db.query(PerformanceFacilityDB)
     
     region_name = get_region_name(signgucode, signgucodesub)
