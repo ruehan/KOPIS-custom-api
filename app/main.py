@@ -2,17 +2,18 @@ import os
 from typing import List, Optional
 from dotenv import load_dotenv
 from fastapi import FastAPI, Query, HTTPException, Depends
+from fastapi.openapi.utils import get_openapi
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
-from sqlalchemy import Text, create_engine, Column, Integer, String, Date
+from sqlalchemy import create_engine, Column, Integer, String, Date, Text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from datetime import datetime, timedelta
 import requests
 import xmltodict
 from urllib.parse import unquote
-from fastapi.responses import PlainTextResponse
-from fastapi.openapi.utils import get_openapi
 import json
+import re
 
 load_dotenv()
 
@@ -40,18 +41,6 @@ class PerformanceDB(Base):
     area = Column(String)
     last_updated = Column(Date)
 
-class Performance(BaseModel):
-    mt20id: str
-    prfnm: str
-    prfpdfrom: str
-    prfpdto: str
-    fcltynm: str
-    poster: str
-    genrenm: str
-    prfstate: str
-    openrun: Optional[str]
-    area: Optional[str]
-
 class PerformanceDetailDB(Base):
     __tablename__ = "performance_details"
 
@@ -74,7 +63,22 @@ class PerformanceDetailDB(Base):
     openrun = Column(String)
     styurls = Column(Text)
     dtguidance = Column(String)
+    relates = Column(Text)
     last_updated = Column(Date)
+
+Base.metadata.create_all(bind=engine)
+
+class Performance(BaseModel):
+    mt20id: str
+    prfnm: str
+    prfpdfrom: str
+    prfpdto: str
+    fcltynm: str
+    poster: str
+    genrenm: str
+    prfstate: str
+    openrun: Optional[str]
+    area: Optional[str]
 
 class PerformanceDetail(BaseModel):
     mt20id: str
@@ -95,8 +99,7 @@ class PerformanceDetail(BaseModel):
     openrun: Optional[str] = None
     styurls: Optional[str] = None
     dtguidance: Optional[str] = None
-
-Base.metadata.create_all(bind=engine)
+    relates: Optional[str] = None
 
 def get_db():
     db = SessionLocal()
@@ -107,6 +110,22 @@ def get_db():
 
 KOPIS_API_KEY = os.getenv("KOPIS_API_KEY")
 KOPIS_BASE_URL = "http://www.kopis.or.kr/openApi/restful/pblprfr"
+
+def decode_unicode_escape(s):
+    return re.sub(r'\\u([0-9a-fA-F]{4})', lambda m: chr(int(m.group(1), 16)), s)
+
+def process_relates(relates):
+    if isinstance(relates, list):
+        return [{
+            'relatenm': decode_unicode_escape(item['relatenm']),
+            'relateurl': item['relateurl']
+        } for item in relates]
+    elif isinstance(relates, dict):
+        return {
+            'relatenm': decode_unicode_escape(relates['relatenm']),
+            'relateurl': relates['relateurl']
+        }
+    return relates
 
 def fetch_from_kopis(start_date, end_date):
     params = {
@@ -120,7 +139,7 @@ def fetch_from_kopis(start_date, end_date):
     response = requests.get(KOPIS_BASE_URL, params=params)
     response.raise_for_status()
     
-    data = xmltodict.parse(response.content)
+    data = xmltodict.parse(response.content, encoding='utf-8')
     performances = data['dbs']['db']
     
     if not isinstance(performances, list):
@@ -133,40 +152,48 @@ def fetch_performance_detail(mt20id):
         "service": KOPIS_API_KEY,
         "mt20id": mt20id
     }
+    
     response = requests.get(f"{KOPIS_BASE_URL}/{mt20id}", params=params)
     response.raise_for_status()
     
-    data = xmltodict.parse(response.content)
+    data = xmltodict.parse(response.content, encoding='utf-8')
     return data['dbs']['db']
 
-def update_database(db, performances):
-    # Delete all existing records
-    db.query(PerformanceDB).delete()
-    
-    # Add new performances
+def update_database(db: Session, performances):
     for perf in performances:
-        new_perf = PerformanceDB(
-            mt20id=perf['mt20id'],
-            prfnm=perf['prfnm'],
-            prfpdfrom=datetime.strptime(perf['prfpdfrom'], "%Y.%m.%d").date(),
-            prfpdto=datetime.strptime(perf['prfpdto'], "%Y.%m.%d").date(),
-            fcltynm=perf['fcltynm'],
-            poster=perf['poster'],
-            genrenm=perf['genrenm'],
-            prfstate=perf['prfstate'],
-            openrun=perf.get('openrun'),
-            area=perf.get('area'),
-            last_updated=datetime.now().date()
-        )
-        db.add(new_perf)
+        db_perf = db.query(PerformanceDB).filter(PerformanceDB.mt20id == perf['mt20id']).first()
+        if not db_perf:
+            new_perf = PerformanceDB(
+                mt20id=perf['mt20id'],
+                prfnm=perf['prfnm'],
+                prfpdfrom=datetime.strptime(perf['prfpdfrom'], "%Y.%m.%d").date(),
+                prfpdto=datetime.strptime(perf['prfpdto'], "%Y.%m.%d").date(),
+                fcltynm=perf['fcltynm'],
+                poster=perf['poster'],
+                genrenm=perf['genrenm'],
+                prfstate=perf['prfstate'],
+                openrun=perf.get('openrun'),
+                area=perf.get('area'),
+                last_updated=datetime.now().date()
+            )
+            db.add(new_perf)
 
         db_detail = db.query(PerformanceDetailDB).filter(PerformanceDetailDB.mt20id == perf['mt20id']).first()
         if not db_detail:
             detail = fetch_performance_detail(perf['mt20id'])
+            
             if isinstance(detail['styurls']['styurl'], list):
                 styurls = ','.join(detail['styurls']['styurl'])
             elif isinstance(detail['styurls']['styurl'], str):
                 styurls = detail['styurls']['styurl']
+            else:
+                styurls = ''
+
+            if 'relates' in detail and 'relate' in detail['relates']:
+                relates = process_relates(detail['relates']['relate'])
+                relates_str = json.dumps(relates, ensure_ascii=False)
+            else:
+                relates_str = ''
 
             new_detail = PerformanceDetailDB(
                 mt20id=detail['mt20id'],
@@ -187,12 +214,11 @@ def update_database(db, performances):
                 openrun=detail.get('openrun'),
                 styurls=styurls,
                 dtguidance=detail['dtguidance'],
+                relates=relates_str,
                 last_updated=datetime.now().date()
             )
             db.add(new_detail)
     
-    
-
     db.commit()
 
 @app.on_event("startup")
@@ -226,7 +252,6 @@ async def get_performances(
     openrun: Optional[str] = Query(None, description="오픈런"),
     db: Session = Depends(get_db)
 ):
-    """공연목록 정보를 반환합니다."""
     try:
         start_date = datetime.strptime(stdate, "%Y%m%d").date()
         end_date = datetime.strptime(eddate, "%Y%m%d").date()
@@ -279,6 +304,11 @@ async def get_performance_detail(mt20id: str, db: Session = Depends(get_db)):
     if db_detail is None:
         raise HTTPException(status_code=404, detail="Performance not found")
     
+    # if db_detail.relates:
+    #     relates = json.loads(db_detail.relates)
+    #     processed_relates = process_relates(relates)
+    #     db_detail.relates = json.dumps(processed_relates, ensure_ascii=False)
+    
     return PerformanceDetail(
         mt20id=db_detail.mt20id,
         prfnm=db_detail.prfnm,
@@ -297,7 +327,8 @@ async def get_performance_detail(mt20id: str, db: Session = Depends(get_db)):
         prfstate=db_detail.prfstate,
         openrun=db_detail.openrun,
         styurls=db_detail.styurls,
-        dtguidance=db_detail.dtguidance
+        dtguidance=db_detail.dtguidance,
+        relates=db_detail.relates
     )
 
 @app.get("/docs/markdown", response_class=PlainTextResponse)
