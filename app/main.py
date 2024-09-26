@@ -5,7 +5,7 @@ from fastapi import FastAPI, Query, HTTPException, Depends
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
-from sqlalchemy import create_engine, Column, Integer, String, Date, Text
+from sqlalchemy import Float, create_engine, Column, Integer, String, Date, Text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from datetime import datetime, timedelta
@@ -14,6 +14,8 @@ import xmltodict
 from urllib.parse import unquote
 import json
 import re
+
+from region_codes import get_region_name
 
 load_dotenv()
 
@@ -66,8 +68,6 @@ class PerformanceDetailDB(Base):
     relates = Column(Text)
     last_updated = Column(Date)
 
-Base.metadata.create_all(bind=engine)
-
 class Performance(BaseModel):
     mt20id: str
     prfnm: str
@@ -100,6 +100,41 @@ class PerformanceDetail(BaseModel):
     styurls: Optional[str] = None
     dtguidance: Optional[str] = None
     relates: Optional[str] = None
+
+class PerformanceFacilityDB(Base):
+    __tablename__ = "performance_facilities"
+
+    id = Column(Integer, primary_key=True, index=True)
+    fcltynm = Column(String)  # 공연시설명
+    mt10id = Column(String, unique=True, index=True)  # 공연시설ID
+    mt13cnt = Column(Integer)  # 공연장 수
+    fcltychartr = Column(String)  # 시설특성
+    sidonm = Column(String)  # 지역(시도)
+    gugunnm = Column(String)  # 지역(구군)
+    opende = Column(String)  # 개관연도
+    seatscale = Column(Integer)  # 객석 수
+    telno = Column(String)  # 전화번호
+    relateurl = Column(String)  # 홈페이지
+    adres = Column(String)  # 주소
+    la = Column(Float)  # 위도
+    lo = Column(Float)  # 경도
+
+class PerformanceFacility(BaseModel):
+    fcltynm: str
+    mt10id: str
+    mt13cnt: int
+    fcltychartr: str
+    sidonm: str
+    gugunnm: str
+    opende: Optional[str] = None
+    seatscale: int
+    telno: Optional[str] = None
+    relateurl: Optional[str] = None
+    adres: str
+    la: float
+    lo: float
+
+Base.metadata.create_all(bind=engine)
 
 def get_db():
     db = SessionLocal()
@@ -147,6 +182,26 @@ def fetch_from_kopis(start_date, end_date):
     
     return performances
 
+def fetch_facilities_from_kopis(signgucode: Optional[str] = None):
+    params = {
+        "service": KOPIS_API_KEY,
+        "cpage": 1,
+        "rows": 1500,
+    }
+    if signgucode:
+        params["signgucode"] = signgucode
+    
+    response = requests.get("http://kopis.or.kr/openApi/restful/prfplc", params=params)
+    response.raise_for_status()
+    
+    data = xmltodict.parse(response.content, encoding='utf-8')
+    facilities = data['dbs']['db']
+    
+    if not isinstance(facilities, list):
+        facilities = [facilities]
+    
+    return facilities
+
 def fetch_performance_detail(mt20id):
     params = {
         "service": KOPIS_API_KEY,
@@ -154,6 +209,18 @@ def fetch_performance_detail(mt20id):
     }
     
     response = requests.get(f"{KOPIS_BASE_URL}/{mt20id}", params=params)
+    response.raise_for_status()
+    
+    data = xmltodict.parse(response.content, encoding='utf-8')
+    return data['dbs']['db']
+
+def fetch_facility_detail_from_kopis(mt10id: str):
+    params = {
+        "service": KOPIS_API_KEY,
+        "mt10id": mt10id
+    }
+    
+    response = requests.get(f"http://kopis.or.kr/openApi/restful/prfplc/{mt10id}", params=params)
     response.raise_for_status()
     
     data = xmltodict.parse(response.content, encoding='utf-8')
@@ -218,6 +285,47 @@ def update_database(db: Session, performances):
                 last_updated=datetime.now().date()
             )
             db.add(new_detail)
+    
+    db.commit()
+
+def update_facilities_database(db: Session, facilities):
+    for facility in facilities:
+        db_facility = db.query(PerformanceFacilityDB).filter(PerformanceFacilityDB.mt10id == facility['mt10id']).first()
+        
+        # 상세 정보 가져오기
+        detail = fetch_facility_detail_from_kopis(facility['mt10id'])
+        
+        if not db_facility:
+            new_facility = PerformanceFacilityDB(
+                fcltynm=facility['fcltynm'],
+                mt10id=facility['mt10id'],
+                mt13cnt=int(facility['mt13cnt']),
+                fcltychartr=facility['fcltychartr'],
+                sidonm=facility['sidonm'],
+                gugunnm=facility['gugunnm'],
+                opende=facility['opende'],
+                seatscale=int(detail['seatscale']),
+                telno=detail['telno'],
+                relateurl=detail['relateurl'],
+                adres=detail['adres'],
+                la=float(detail['la']),
+                lo=float(detail['lo'])
+            )
+            db.add(new_facility)
+        else:
+            # 기존 데이터 업데이트
+            db_facility.fcltynm = facility['fcltynm']
+            db_facility.mt13cnt = int(facility['mt13cnt'])
+            db_facility.fcltychartr = facility['fcltychartr']
+            db_facility.sidonm = facility['sidonm']
+            db_facility.gugunnm = facility['gugunnm']
+            db_facility.opende = facility['opende']
+            db_facility.seatscale = int(detail['seatscale'])
+            db_facility.telno = detail['telno']
+            db_facility.relateurl = detail['relateurl']
+            db_facility.adres = detail['adres']
+            db_facility.la = float(detail['la'])
+            db_facility.lo = float(detail['lo'])
     
     db.commit()
 
@@ -330,6 +438,70 @@ async def get_performance_detail(mt20id: str, db: Session = Depends(get_db)):
         dtguidance=db_detail.dtguidance,
         relates=db_detail.relates
     )
+
+@app.post("/update-facilities")
+async def update_facilities(
+    signgucode: Optional[str] = Query(None, description="지역(시도)코드"),
+    db: Session = Depends(get_db)
+):
+    """사용 금지"""
+    try:
+        facilities = fetch_facilities_from_kopis(signgucode)
+        update_facilities_database(db, facilities)
+        return {"message": f"데이터 업데이트가 완료되었습니다. 업데이트된 시설 수: {len(facilities)}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"데이터 업데이트 중 오류 발생: {str(e)}")
+
+# 데이터 조회를 위한 엔드포인트
+@app.get("/performance-facilities", response_model=List[PerformanceFacility])
+async def get_performance_facilities(
+    signgucode: Optional[str] = Query(None, description="지역(시도)코드"),
+    signgucodesub: Optional[str] = Query(None, description="지역(구군)코드"),
+    fcltychartr: Optional[str] = Query(None, description="공연시설특성코드"),
+    shprfnmfct: Optional[str] = Query(None, description="공연시설명"),
+    cpage: int = Query(1, description="현재페이지"),
+    rows: int = Query(5, description="페이지당 목록 수"),
+    db: Session = Depends(get_db)
+):
+    query = db.query(PerformanceFacilityDB)
+    
+    region_name = get_region_name(signgucode, signgucodesub)
+    if region_name:
+        if signgucodesub:
+            sido_name = region_name.split()[0]
+            gugun_name = ' '.join(region_name.split()[1:])
+            print(gugun_name)
+            query = query.filter(PerformanceFacilityDB.sidonm == sido_name)
+            query = query.filter(PerformanceFacilityDB.gugunnm == gugun_name)
+        else:
+            query = query.filter(PerformanceFacilityDB.sidonm == region_name)
+    
+    if fcltychartr:
+        query = query.filter(PerformanceFacilityDB.fcltychartr == fcltychartr)
+    if shprfnmfct:
+        query = query.filter(PerformanceFacilityDB.fcltynm.like(f"%{shprfnmfct}%"))
+    
+    total_count = query.count()
+    facilities = query.offset((cpage - 1) * rows).limit(rows).all()
+    
+    if not facilities:
+        raise HTTPException(status_code=404, detail="시설 정보를 찾을 수 없습니다.")
+    
+    return [PerformanceFacility(
+        fcltynm=facility.fcltynm,
+        mt10id=facility.mt10id,
+        mt13cnt=facility.mt13cnt,
+        fcltychartr=facility.fcltychartr,
+        sidonm=facility.sidonm,
+        gugunnm=facility.gugunnm,
+        opende=facility.opende or None,  
+        seatscale=facility.seatscale,
+        relateurl=facility.relateurl or None, 
+        adres=facility.adres,
+        la=facility.la,
+        lo=facility.lo
+    ) for facility in facilities]
+
 
 @app.get("/docs/markdown", response_class=PlainTextResponse)
 async def get_markdown_docs():
