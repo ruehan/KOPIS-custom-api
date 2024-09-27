@@ -50,3 +50,6 @@ class PerformanceFacility(BaseModel):
     adres: str
     la: float
     lo: float
+
+class PerformanceName(BaseModel):
+    prfnm: str

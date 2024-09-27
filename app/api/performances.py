@@ -1,11 +1,10 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional, List
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
 from database import get_db
 from models import PerformanceDB, PerformanceDetailDB
-from schemas import Performance, PerformanceDetail
-from utils import fetch_from_kopis, update_database
+from schemas import Performance, PerformanceDetail, PerformanceName
 from urllib.parse import unquote
 
 router = APIRouter()
@@ -106,3 +105,24 @@ async def get_performance_detail(mt20id: str, db: Session = Depends(get_db)):
         dtguidance=db_detail.dtguidance,
         relates=db_detail.relates
     )
+
+@router.get("/auto-fill", response_model=List[PerformanceName])
+async def get_auto_fill(
+    cpage: int = Query(1, description="현재페이지"),
+    rows: int = Query(10, description="페이지당 목록 수"),
+    shprfnm: str = Query(... , description="공연명"),
+    db: Session = Depends(get_db)
+):
+    """
+        ## 자동완성 API
+    """
+
+    query = db.query(PerformanceDB)
+
+    if shprfnm:
+        query = query.filter(PerformanceDB.prfnm.like(f"%{unquote(shprfnm)}%"))
+
+    total_count = query.count()
+    performance_names = query.offset((cpage - 1) * rows).limit(rows).all()
+
+    return [PerformanceName(prfnm=name.prfnm) for name in performance_names]
