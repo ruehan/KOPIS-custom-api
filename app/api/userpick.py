@@ -1,3 +1,4 @@
+import random
 from fastapi import APIRouter, Depends, HTTPException, Security
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
@@ -11,6 +12,7 @@ import aiohttp
 import xml.etree.ElementTree as ET
 from datetime import datetime
 import models, schemas
+from sqlalchemy import func
 
 router = APIRouter()
 security = HTTPBearer()
@@ -151,19 +153,61 @@ def parse_kopis_xml(xml_string: str) -> List[Performance]:
 
     return performances
 
+# @router.get("/recommended-shows", response_model=List[schemas.Performance])
+# def get_recommended_shows(token: str, db: Session = Depends(get_db)):
+#     user = db.query(models.User).filter(models.User.token == token).first()
+#     if not user:
+#         raise HTTPException(status_code=404, detail="User not found")
+    
+#     user_genres = db.query(models.UserGenre).filter(models.UserGenre.user_id == user.id).all()
+#     genre_names = [ug.genre for ug in user_genres]
+    
+#     # 사용자의 선호 장르에 해당하는 공연들 중 최근 공연을 추천
+#     recommended_shows = db.query(models.Performance).filter(
+#         models.Performance.genrenm.in_(genre_names),
+#         models.Performance.prfpdfrom >= datetime.now().date()
+#     ).order_by(models.Performance.prfpdfrom).limit(10).all()
+    
+#     return recommended_shows
+
 @router.get("/recommended-shows", response_model=List[schemas.Performance])
-def get_recommended_shows(token: str, db: Session = Depends(get_db)):
-    user = db.query(models.User).filter(models.User.token == token).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+def get_recommended_shows(credentials: HTTPAuthorizationCredentials = Security(security), db: Session = Depends(get_db)):
+    # 토큰으로 사용자가 선택한 장르 가져오기
+    token = verify_token(credentials.credentials)
+    user_picks = db.query(models.UserPick).filter(models.UserPick.token == token).all()
+    if not user_picks:
+        raise HTTPException(status_code=404, detail="User picks not found")
     
-    user_genres = db.query(models.UserGenre).filter(models.UserGenre.user_id == user.id).all()
-    genre_names = [ug.genre for ug in user_genres]
+    selected_genres = list(set([pick.performance_id for pick in user_picks]))
     
-    # 사용자의 선호 장르에 해당하는 공연들 중 최근 공연을 추천
-    recommended_shows = db.query(models.Performance).filter(
-        models.Performance.genrenm.in_(genre_names),
-        models.Performance.prfpdfrom >= datetime.now().date()
-    ).order_by(models.Performance.prfpdfrom).limit(10).all()
+    recommended_shows = []
+    for genre in selected_genres:
+        # 각 장르별로 최근 공연 중 랜덤하게 5~9개 선택
+        genre_shows = db.query(models.PerformanceDB).filter(
+            models.PerformanceDB.genrenm == genre,
+            models.PerformanceDB.prfpdfrom >= func.current_date()
+        ).order_by(func.random()).limit(9).all()
+        
+    #     # 최소 5개, 최대 9개 선택
+        num_shows = min(max(5, len(genre_shows)), 9) 
+        print(genre_shows, num_shows)
+        # random.choices를 사용하여 num_shows개 선택, 중복 제거
+        if genre_shows:  # genre_shows가 비어있지 않은 경우에만 선택
+            selected_shows = random.choices(genre_shows, k=num_shows)
+            recommended_shows.extend(list(set(selected_shows)))
+
     
-    return recommended_shows
+    # 장르별 추천 공연 수가 10개 미만이면 다른 장르의 공연으로 채우기
+    if len(recommended_shows) < 10:
+        other_shows = db.query(models.PerformanceDB).filter(
+            ~models.PerformanceDB.genrenm.in_(selected_genres),
+            models.PerformanceDB.prfpdfrom >= func.current_date()
+        ).order_by(func.random()).limit(10 - len(recommended_shows)).all()
+        recommended_shows.extend(other_shows)
+
+    for show in recommended_shows:
+        show.prfpdfrom = show.prfpdfrom.strftime('%Y-%m-%d')  # 또는 원하는 날짜 형식
+        show.prfpdto = show.prfpdto.strftime('%Y-%m-%d')
+    
+    # 최대 10개까지만 반환
+    return recommended_shows[:10]
