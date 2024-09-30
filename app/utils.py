@@ -1,4 +1,5 @@
 import json
+import os
 import re
 from typing import Optional
 import requests
@@ -7,6 +8,10 @@ from datetime import datetime
 from models import PerformanceDB, PerformanceDetailDB, PerformanceFacilityDB
 from config import KOPIS_API_KEY, KOPIS_BASE_URL
 from sqlalchemy.orm import sessionmaker, Session
+import jwt
+from datetime import datetime, timedelta
+from fastapi import HTTPException
+
 
 def fetch_from_kopis(start_date, end_date):
     params = {
@@ -226,3 +231,23 @@ def schema_to_markdown(schema, level=0):
     if example is not None:
         markdown += f"{indent}- Example: `{json.dumps(example)}`\n"
     return markdown
+
+
+
+SECRET_KEY = os.getenv("TOKEN_KEY")
+ALGORITHM = "HS256"
+
+def create_token():
+    payload = {
+        "exp": datetime.utcnow() + timedelta(days=30)  # 토큰 유효기간 30일
+    }
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+
+def verify_token(token: str):
+    try:
+        jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return token
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token has expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")
