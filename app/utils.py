@@ -190,3 +190,39 @@ def update_facilities_database(db: Session, facilities):
             db_facility.lo = float(detail['lo'])
     
     db.commit()
+
+def get_example_value(schema):
+    if 'example' in schema:
+        return schema['example']
+    if schema.get('type') == 'string':
+        return "string"
+    elif schema.get('type') == 'integer':
+        return 0
+    elif schema.get('type') == 'number':
+        return 0.0
+    elif schema.get('type') == 'boolean':
+        return False
+    elif schema.get('type') == 'array':
+        return [get_example_value(schema.get('items', {}))]
+    elif schema.get('type') == 'object':
+        return {k: get_example_value(v) for k, v in schema.get('properties', {}).items()}
+    return None
+
+def schema_to_markdown(schema, level=0):
+    markdown = ""
+    indent = "  " * level
+    if 'type' in schema:
+        markdown += f"{indent}- Type: `{schema['type']}`\n"
+        if schema['type'] == 'object' and 'properties' in schema:
+            for prop, prop_schema in schema['properties'].items():
+                markdown += f"{indent}- `{prop}`:\n"
+                markdown += schema_to_markdown(prop_schema, level + 1)
+        elif schema['type'] == 'array' and 'items' in schema:
+            markdown += f"{indent}- Items:\n"
+            markdown += schema_to_markdown(schema['items'], level + 1)
+    if 'enum' in schema:
+        markdown += f"{indent}- Enum: {', '.join([f'`{e}`' for e in schema['enum']])}\n"
+    example = get_example_value(schema)
+    if example is not None:
+        markdown += f"{indent}- Example: `{json.dumps(example)}`\n"
+    return markdown
