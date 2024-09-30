@@ -1,5 +1,6 @@
-from sqlalchemy import Column, Integer, String, Date, Text, Float
+from sqlalchemy import Column, ForeignKey, Integer, String, Date, Text, Float
 from database import Base
+from sqlalchemy.orm import relationship
 
 class PerformanceDB(Base):
     __tablename__ = "performances"
@@ -60,3 +61,14 @@ class PerformanceFacilityDB(Base):
     la = Column(Float)
     lo = Column(Float)
 
+class UserPick(Base):
+    __tablename__ = "user_picks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    token = Column(String, index=True)  # 사용자 토큰
+    performance_id = Column(String, ForeignKey("performances.mt20id"))
+
+    performance = relationship("PerformanceDB", back_populates="picks")
+
+# PerformanceDB 모델에 관계 추가
+PerformanceDB.picks = relationship("UserPick", back_populates="performance")

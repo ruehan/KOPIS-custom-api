@@ -1,4 +1,5 @@
 import json
+import os
 import re
 from typing import Optional
 import requests
@@ -7,6 +8,10 @@ from datetime import datetime
 from models import PerformanceDB, PerformanceDetailDB, PerformanceFacilityDB
 from config import KOPIS_API_KEY, KOPIS_BASE_URL
 from sqlalchemy.orm import sessionmaker, Session
+import jwt
+from datetime import datetime, timedelta
+from fastapi import HTTPException
+
 
 def fetch_from_kopis(start_date, end_date):
     params = {
@@ -190,3 +195,59 @@ def update_facilities_database(db: Session, facilities):
             db_facility.lo = float(detail['lo'])
     
     db.commit()
+
+def get_example_value(schema):
+    if 'example' in schema:
+        return schema['example']
+    if schema.get('type') == 'string':
+        return "string"
+    elif schema.get('type') == 'integer':
+        return 0
+    elif schema.get('type') == 'number':
+        return 0.0
+    elif schema.get('type') == 'boolean':
+        return False
+    elif schema.get('type') == 'array':
+        return [get_example_value(schema.get('items', {}))]
+    elif schema.get('type') == 'object':
+        return {k: get_example_value(v) for k, v in schema.get('properties', {}).items()}
+    return None
+
+def schema_to_markdown(schema, level=0):
+    markdown = ""
+    indent = "  " * level
+    if 'type' in schema:
+        markdown += f"{indent}- Type: `{schema['type']}`\n"
+        if schema['type'] == 'object' and 'properties' in schema:
+            for prop, prop_schema in schema['properties'].items():
+                markdown += f"{indent}- `{prop}`:\n"
+                markdown += schema_to_markdown(prop_schema, level + 1)
+        elif schema['type'] == 'array' and 'items' in schema:
+            markdown += f"{indent}- Items:\n"
+            markdown += schema_to_markdown(schema['items'], level + 1)
+    if 'enum' in schema:
+        markdown += f"{indent}- Enum: {', '.join([f'`{e}`' for e in schema['enum']])}\n"
+    example = get_example_value(schema)
+    if example is not None:
+        markdown += f"{indent}- Example: `{json.dumps(example)}`\n"
+    return markdown
+
+
+
+SECRET_KEY = os.getenv("TOKEN_KEY")
+ALGORITHM = "HS256"
+
+def create_token():
+    payload = {
+        "exp": datetime.utcnow() + timedelta(days=30)  # 토큰 유효기간 30일
+    }
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+
+def verify_token(token: str):
+    try:
+        jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return token
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token has expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")

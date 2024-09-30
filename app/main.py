@@ -9,11 +9,19 @@ from fastapi.templating import Jinja2Templates
 from utils import fetch_from_kopis, update_database
 from api import performances, facilities
 from database import Base, SessionLocal, engine
-
+from fastapi.middleware.cors import CORSMiddleware
 
 load_dotenv()
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], 
+    allow_credentials=True,
+    allow_methods=["*"], 
+    allow_headers=["*"], 
+)
 
 Base.metadata.create_all(bind=engine)
 
@@ -28,7 +36,7 @@ async def root(request: Request):
 
 @app.get("/docs/markdown", response_class=PlainTextResponse)
 async def get_markdown_docs():
-    """API 문서를 Markdown 형식으로 반환"""
+    """API 문서를 ReDoc 스타일의 Markdown 형식으로 반환"""
     
     def generate_markdown_docs():
         openapi_schema = get_openapi(
@@ -40,29 +48,47 @@ async def get_markdown_docs():
         markdown = f"# {openapi_schema['info']['title']}\n\n"
         markdown += f"Version: {openapi_schema['info']['version']}\n\n"
 
+        # 태그별로 엔드포인트 그룹화
+        tag_groups = {}
         for path, path_item in openapi_schema['paths'].items():
             for method, operation in path_item.items():
-                markdown += f"## {method.upper()} {path}\n\n"
-                markdown += f"{operation.get('summary', '')}\n\n"
+                tags = operation.get('tags', ['default'])
+                for tag in tags:
+                    if tag not in tag_groups:
+                        tag_groups[tag] = []
+                    tag_groups[tag].append((path, method, operation))
+
+        # 태그별로 문서 생성
+        for tag, operations in tag_groups.items():
+            markdown += f"# {tag}\n\n"
+            for path, method, operation in operations:
+                markdown += f"## {operation.get('summary', path)}\n\n"
+                markdown += f"`{method.upper()} {path}`\n\n"
                 markdown += f"{operation.get('description', '')}\n\n"
 
+                # Parameters
                 if 'parameters' in operation:
                     markdown += "### Parameters\n\n"
-                    markdown += "| Name | Located in | Description | Required | Schema |\n"
-                    markdown += "| ---- | ---------- | ----------- | -------- | ------ |\n"
                     for param in operation['parameters']:
-                        markdown += f"| {param.get('name')} | {param.get('in')} | {param.get('description', '')} | {param.get('required', False)} | {param.get('schema', {}).get('type', '')} |\n"
+                        markdown += f"- `{param['name']}` ({param['in']}): {param.get('description', '')}\n"
+                        if 'schema' in param:
+                            markdown += f"  - Type: `{param['schema'].get('type', '')}`\n"
+                        if param.get('required', False):
+                            markdown += "  - Required: Yes\n"
+                    markdown += "\n"
 
+                # Request Body
                 if 'requestBody' in operation:
                     markdown += "### Request Body\n\n"
                     content = operation['requestBody']['content']
                     for media_type, media_info in content.items():
-                        markdown += f"Content type: {media_type}\n\n"
+                        markdown += f"Content type: `{media_type}`\n\n"
                         if 'schema' in media_info:
                             markdown += "Schema:\n```json\n"
                             markdown += json.dumps(media_info['schema'], indent=2)
                             markdown += "\n```\n\n"
 
+                # Responses
                 if 'responses' in operation:
                     markdown += "### Responses\n\n"
                     for status, response in operation['responses'].items():
@@ -70,7 +96,7 @@ async def get_markdown_docs():
                         markdown += f"{response.get('description', '')}\n\n"
                         if 'content' in response:
                             for media_type, media_info in response['content'].items():
-                                markdown += f"Content type: {media_type}\n\n"
+                                markdown += f"Content type: `{media_type}`\n\n"
                                 if 'schema' in media_info:
                                     markdown += "Schema:\n```json\n"
                                     markdown += json.dumps(media_info['schema'], indent=2)
