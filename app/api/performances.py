@@ -108,6 +108,8 @@ async def get_performance_detail(mt20id: str, db: Session = Depends(get_db)):
 
 @router.get("/auto-fill", response_model=List[PerformanceName])
 async def get_auto_fill(
+    stdate: str = Query(..., description="공연시작일자"),
+    eddate: str = Query(..., description="공연종료일자"),
     cpage: int = Query(1, description="현재페이지"),
     rows: int = Query(10, description="페이지당 목록 수"),
     shprfnm: str = Query(... , description="공연명"),
@@ -117,7 +119,16 @@ async def get_auto_fill(
         ## 자동완성 API
     """
 
-    query = db.query(PerformanceDB)
+    try:
+        start_date = datetime.strptime(stdate, "%Y%m%d").date()
+        end_date = datetime.strptime(eddate, "%Y%m%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYYMMDD.")
+
+    query = db.query(PerformanceDB).filter(
+        PerformanceDB.prfpdfrom <= end_date,
+        PerformanceDB.prfpdto >= start_date
+    )
 
     if shprfnm:
         query = query.filter(PerformanceDB.prfnm.like(f"%{unquote(shprfnm)}%"))
