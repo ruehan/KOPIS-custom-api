@@ -1,3 +1,4 @@
+from typing import List
 from pydantic import BaseModel
 from typing import Optional
 
@@ -53,3 +54,6 @@ class PerformanceFacility(BaseModel):
 
 class PerformanceName(BaseModel):
     prfnm: str
+
+class UserPicksInput(BaseModel):
+    performance_ids: List[str]

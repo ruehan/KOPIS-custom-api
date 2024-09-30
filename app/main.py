@@ -7,7 +7,7 @@ import json
 
 from fastapi.templating import Jinja2Templates
 from utils import fetch_from_kopis, update_database
-from api import performances, facilities
+from api import performances, facilities, userpick
 from database import Base, SessionLocal, engine
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -27,6 +27,7 @@ Base.metadata.create_all(bind=engine)
 
 app.include_router(performances.router)
 app.include_router(facilities.router)
+app.include_router(userpick.router)
 
 templates = Jinja2Templates(directory="templates")
 
