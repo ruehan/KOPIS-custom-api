@@ -1,6 +1,10 @@
-from typing import List
+from typing import List, Dict
 from pydantic import BaseModel
 from typing import Optional
+from datetime import date
+
+def date_to_string(v):
+    return v.strftime('%Y-%m-%d') if isinstance(v, date) else v
 
 class Performance(BaseModel):
     mt20id: str
@@ -13,6 +17,17 @@ class Performance(BaseModel):
     prfstate: str
     openrun: Optional[str]
     area: Optional[str]
+
+    class Config:
+        from_attributes = True
+
+    @classmethod
+    def from_orm(cls, obj):
+        return cls(
+            **{
+                k: date_to_string(v) for k, v in obj.__dict__.items()
+            }
+        )
 
 class PerformanceDetail(BaseModel):
     mt20id: str
@@ -36,7 +51,6 @@ class PerformanceDetail(BaseModel):
     relates: Optional[str] = None
 
 
-
 class PerformanceFacility(BaseModel):
     fcltynm: str
     mt10id: str
@@ -57,3 +71,9 @@ class PerformanceName(BaseModel):
 
 class UserPicksInput(BaseModel):
     performance_ids: List[str]
+
+class RecommendedShows(BaseModel):
+    root: Dict[str, List[Performance]]
+
+    class Config:
+        from_attributes = True 
