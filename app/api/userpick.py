@@ -1,9 +1,10 @@
+import itertools
 import random
 from fastapi import APIRouter, Depends, HTTPException, Security
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 from config import KOPIS_API_KEY
-from schemas import Performance, UserPicksInput
+from schemas import Performance, UserPicksInput, RecommendedShows
 from utils import create_token, verify_token
 from database import get_db
 from models import UserPick, PerformanceDB
@@ -40,6 +41,10 @@ async def fetch_kopis_data(base_url: str, params: dict) -> List[Performance]:
 
 @router.get("/popular-by-genre", response_model=List[Performance])
 async def get_popular_by_genre():
+    """
+        ## 장르별로 공연 1개 반환
+        ### stdate / eddate 수정 필요!
+    """
     popular_performances = []
     base_url = "http://kopis.or.kr/openApi/restful/pblprfr"
     
@@ -68,6 +73,9 @@ async def save_user_picks(
     credentials: HTTPAuthorizationCredentials = Security(security),
     db: Session = Depends(get_db)
 ):
+    """
+        ## Token 기반 사용자 공연 Pick 저장
+    """
     
 
     token = verify_token(credentials.credentials)
@@ -87,30 +95,20 @@ async def save_user_picks(
     db.commit()
     return {"message": "User picks saved successfully"}
 
-@router.get("/user-picks", response_model=List[Performance])
+@router.get("/user-picks")
 async def get_user_picks(
     credentials: HTTPAuthorizationCredentials = Security(security),
     db: Session = Depends(get_db)
 ):
+    """
+        ## Token 기반 사용자 공연 Pick 반환
+    """
     token = verify_token(credentials.credentials)
 
     user_picks = db.query(UserPick).filter(UserPick.token == token).all()
     performance_ids = [pick.performance_id for pick in user_picks]
 
-    performances = db.query(PerformanceDB).filter(PerformanceDB.mt20id.in_(performance_ids)).all()
-
-    return [Performance(
-        mt20id=perf.mt20id,
-        prfnm=perf.prfnm,
-        prfpdfrom=perf.prfpdfrom.strftime("%Y.%m.%d"),
-        prfpdto=perf.prfpdto.strftime("%Y.%m.%d"),
-        fcltynm=perf.fcltynm,
-        poster=perf.poster,
-        genrenm=perf.genrenm,
-        prfstate=perf.prfstate,
-        openrun=perf.openrun,
-        area=perf.area
-    ) for perf in performances]
+    return performance_ids
 
 @router.post("/token")
 async def generate_token():
@@ -170,8 +168,11 @@ def parse_kopis_xml(xml_string: str) -> List[Performance]:
     
 #     return recommended_shows
 
-@router.get("/recommended-shows", response_model=List[schemas.Performance])
+@router.get("/recommended-shows", response_model=RecommendedShows)
 def get_recommended_shows(credentials: HTTPAuthorizationCredentials = Security(security), db: Session = Depends(get_db)):
+    """
+        ## 공연 Pick에 따른 추천 공연 리스트
+    """
     # 토큰으로 사용자가 선택한 장르 가져오기
     token = verify_token(credentials.credentials)
     user_picks = db.query(models.UserPick).filter(models.UserPick.token == token).all()
@@ -182,32 +183,14 @@ def get_recommended_shows(credentials: HTTPAuthorizationCredentials = Security(s
     
     recommended_shows = []
     for genre in selected_genres:
-        # 각 장르별로 최근 공연 중 랜덤하게 5~9개 선택
         genre_shows = db.query(models.PerformanceDB).filter(
             models.PerformanceDB.genrenm == genre,
             models.PerformanceDB.prfpdfrom >= func.current_date()
-        ).order_by(func.random()).limit(9).all()
+        ).order_by(func.random()).limit(10).all()
         
-    #     # 최소 5개, 최대 9개 선택
-        num_shows = min(max(5, len(genre_shows)), 9) 
-        print(genre_shows, num_shows)
-        # random.choices를 사용하여 num_shows개 선택, 중복 제거
-        if genre_shows:  # genre_shows가 비어있지 않은 경우에만 선택
-            selected_shows = random.choices(genre_shows, k=num_shows)
-            recommended_shows.extend(list(set(selected_shows)))
+        recommended_shows.extend(genre_shows)
 
-    
-    # 장르별 추천 공연 수가 10개 미만이면 다른 장르의 공연으로 채우기
-    if len(recommended_shows) < 10:
-        other_shows = db.query(models.PerformanceDB).filter(
-            ~models.PerformanceDB.genrenm.in_(selected_genres),
-            models.PerformanceDB.prfpdfrom >= func.current_date()
-        ).order_by(func.random()).limit(10 - len(recommended_shows)).all()
-        recommended_shows.extend(other_shows)
-
-    for show in recommended_shows:
-        show.prfpdfrom = show.prfpdfrom.strftime('%Y-%m-%d')  # 또는 원하는 날짜 형식
-        show.prfpdto = show.prfpdto.strftime('%Y-%m-%d')
-    
-    # 최대 10개까지만 반환
-    return recommended_shows[:10]
+    return RecommendedShows(root={
+        genre: [Performance.from_orm(show) for show in shows]
+        for genre, shows in itertools.groupby(recommended_shows, key=lambda x: x.genrenm)
+    })
