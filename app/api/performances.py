@@ -3,7 +3,7 @@ from typing import Optional, List
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
 from database import get_db
-from models import PerformanceDB, PerformanceDetailDB
+from models import PerformanceDB, PerformanceDetailDB, UpcomingPerformanceDB
 from schemas import Performance, PerformanceDetail, PerformanceName
 from urllib.parse import unquote
 
@@ -74,6 +74,34 @@ async def get_performances(
         openrun=perf.openrun,
         area=perf.area
     ) for perf in performances]
+
+@router.get("/upcoming-performances", response_model=List[Performance])
+async def get_upcoming_performances(db: Session = Depends(get_db)):
+    today = datetime.now().date()
+
+    performances = db.query(UpcomingPerformanceDB).filter(
+        UpcomingPerformanceDB.prfpdfrom > today
+    ).order_by(UpcomingPerformanceDB.prfpdfrom).all()
+
+    result = [
+        {
+            "mt20id": perf.mt20id,
+            "prfnm": perf.prfnm,
+            "prfpdfrom": perf.prfpdfrom.strftime('%Y-%m-%d'),
+            "prfpdto": perf.prfpdto.strftime('%Y-%m-%d'),
+            "fcltynm": perf.fcltynm,
+            "poster": perf.poster,
+            "area": perf.area if perf.area else "Unknown",  # 기본값 설정
+            "genrenm": perf.genrenm if perf.genrenm else "Unknown",  # 기본값 설정
+            "openrun": perf.openrun if perf.openrun else "N/A",  # 기본값 설정
+            "prfstate": perf.prfstate
+        }
+        for perf in performances
+    ]
+
+    return result
+
+
 
 @router.get("/performance/{mt20id}", response_model=PerformanceDetail)
 async def get_performance_detail(mt20id: str, db: Session = Depends(get_db)):

@@ -1,11 +1,12 @@
 import json
 import os
 import re
-from typing import Optional
+from typing import List, Optional
 import requests
 import xmltodict
 from datetime import datetime
-from models import PerformanceDB, PerformanceDetailDB, PerformanceFacilityDB
+from schemas import Performance
+from models import PerformanceDB, PerformanceDetailDB, PerformanceFacilityDB, UpcomingPerformanceDB
 from config import KOPIS_API_KEY, KOPIS_BASE_URL
 from sqlalchemy.orm import sessionmaker, Session
 import jwt
@@ -251,3 +252,24 @@ def verify_token(token: str):
         raise HTTPException(status_code=401, detail="Token has expired")
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid token")
+    
+def update_upcoming_performances(db: Session, performances: List[dict]):
+    db.query(UpcomingPerformanceDB).delete()  # 기존 데이터를 삭제하고 새로 입력
+
+    for perf in performances:
+        # 사전 데이터를 DB 모델로 변환
+        new_perf = UpcomingPerformanceDB(
+            mt20id=perf.get('mt20id'),
+            prfnm=perf.get('prfnm'),
+            prfpdfrom=datetime.strptime(perf.get('prfpdfrom'), "%Y.%m.%d").date(),
+            prfpdto=datetime.strptime(perf.get('prfpdto'), "%Y.%m.%d").date(),
+            fcltynm=perf.get('fcltynm'),
+            poster=perf.get('poster'),
+            genrenm=perf.get('genrenm'),
+            prfstate=perf.get('prfstate'),
+            openrun=perf.get('openrun'),
+        )
+        db.add(new_perf)
+    
+    db.commit()
+
