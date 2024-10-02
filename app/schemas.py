@@ -13,10 +13,10 @@ class Performance(BaseModel):
     prfpdto: str
     fcltynm: str
     poster: str
-    genrenm: str
+    genrenm: Optional[str] = None  
     prfstate: str
-    openrun: Optional[str]
-    area: Optional[str]
+    openrun: Optional[str] = None
+    area: Optional[str] = None
 
     class Config:
         from_attributes = True

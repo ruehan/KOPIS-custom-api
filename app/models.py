@@ -61,6 +61,7 @@ class PerformanceFacilityDB(Base):
     la = Column(Float)
     lo = Column(Float)
 
+# 삭제 보류
 class UserPick(Base):
     __tablename__ = "user_picks"
 
@@ -72,3 +73,30 @@ class UserPick(Base):
 
 # PerformanceDB 모델에 관계 추가
 PerformanceDB.picks = relationship("UserPick", back_populates="performance")
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    token = Column(String, unique=True, index=True)
+
+class UserGenre(Base):
+    __tablename__ = "user_genres"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    genre = Column(String)
+
+class UpcomingPerformanceDB(Base):
+    __tablename__ = "upcoming_performances"
+
+    mt20id = Column(String, primary_key=True, index=True)
+    prfnm = Column(String, index=True)
+    prfpdfrom = Column(Date)
+    prfpdto = Column(Date)
+    fcltynm = Column(String)
+    poster = Column(String)
+    area = Column(String, nullable=True, default="Unknown")  # 필드 추가
+    genrenm = Column(String, nullable=True, default="Unknown")
+    openrun = Column(String, nullable=True, default="N/A")
+    prfstate = Column(String)
