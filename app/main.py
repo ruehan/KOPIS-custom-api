@@ -1,14 +1,16 @@
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import PlainTextResponse
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 
 from fastapi.templating import Jinja2Templates
-from utils import fetch_from_kopis, update_database
+from requests import Session
+from models import UpcomingPerformanceDB
+from utils import fetch_from_kopis, update_database, update_upcoming_performances
 from api import performances, facilities, userpick
-from database import Base, SessionLocal, engine
+from database import Base, SessionLocal, engine, get_db
 from fastapi.middleware.cors import CORSMiddleware
 
 load_dotenv()
@@ -28,8 +30,21 @@ Base.metadata.create_all(bind=engine)
 app.include_router(performances.router)
 app.include_router(facilities.router)
 app.include_router(userpick.router)
+# app.include_router(image.router)
 
 templates = Jinja2Templates(directory="templates")
+
+@app.delete("/upcoming-performances/drop", response_model=str)
+async def drop_upcoming_performance_table(db: Session = Depends(get_db)):
+    """
+    Delete the entire upcoming_performances table.
+    """
+    try:
+        # 테이블 삭제
+        UpcomingPerformanceDB.__table__.drop(engine)
+        return "upcoming_performances table has been dropped."
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to drop the table: {str(e)}")
 
 @app.get("/")
 async def root(request: Request):
@@ -119,8 +134,16 @@ async def startup_event():
         db = SessionLocal()
         start_date = datetime.now().date()
         end_date = start_date
+
+        near_future = start_date + timedelta(days=30)
+
         performances = fetch_from_kopis(start_date, end_date)
+        upcoming_performances = fetch_from_kopis(start_date, near_future)
+
+
         update_database(db, performances)
+        update_upcoming_performances(db, upcoming_performances)
+        
         print(f"Database updated at {datetime.now()}")
     except Exception as e:
         print(f"Error updating database: {e}")
